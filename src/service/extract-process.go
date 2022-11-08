@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/skumaran141989/web-extraction/src/service/models"
+	"github.com/skumaran141989/web-extraction/src/utilities"
 	"github.com/skumaran141989/web-extraction/src/utilities/constants"
 )
 
@@ -22,17 +23,25 @@ func NewWebExtraction(WebExtractorType string, attributes map[string]string) *We
 	return &WebExtraction{extractor: extractor}
 }
 
-func (extraction *WebExtraction) Extract(url string, fields models.ExtractedFields) error {
+func (extraction *WebExtraction) Extract(url string, fieldString string) (string, error) {
 	var err error
-	err = extraction.extractor.Start(url)
+
+	fields, err := utilities.GetModelFromJSON(fieldString)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	i := 0
-	for _, field := range fields.Fields {
+	var output_fields []models.Field
+
+	err = extraction.extractor.Start(url)
+	if err != nil {
+		return "", err
+	}
+
+	for _, field := range fields {
 		byType := extraction.extractor.GetByType(field.Type)
 		path := field.Path
+		array_fields = nil
 
 		switch field.ActionType {
 		case constants.SET_VALUE:
@@ -44,24 +53,25 @@ func (extraction *WebExtraction) Extract(url string, fields models.ExtractedFiel
 		case constants.SUBMIT:
 			err = extraction.extractor.SubmitElement(WAIT_TIME, byType, path)
 		case constants.GET_ARRAY:
-			var array_fields []models.Field
-			array_fields, err = getArrayElements(extraction, field)
-			if array_fields != nil {
-				fields.Fields = append(fields.Fields, array_fields...)
-			}
+			err = getArrayValue(extraction, field, output_fields)
 		}
 
 		if err != nil {
 			field.Error = err
 		}
 
-		i++
+		output_fields = append(output_fields, field)
 	}
 
-	return nil
+	outputFieldsJSON, err := utilities.GetJSONFromModel[[]models.Field](output_fields)
+	if err != nil {
+		return "", err
+	}
+
+	return outputFieldsJSON, nil
 }
 
-func getArrayElements(extraction *WebExtraction, field models.Field) ([]models.Field, error) {
+func getArrayValue(extraction *WebExtraction, field models.Field, outputFields []models.Field) error {
 	var err error
 	if field.ArrayPath != "" {
 		err = errors.New(constants.ERROR_ARRAY_DOES_NOT_EXIST)
@@ -71,7 +81,6 @@ func getArrayElements(extraction *WebExtraction, field models.Field) ([]models.F
 
 	array_len, err := extraction.extractor.GetArrayCount(WAIT_TIME, field.Type, field.ArrayPath)
 	if field.ArrayPath != "" {
-
 		return nil, err
 	}
 	if array_len == 0 {
@@ -98,7 +107,7 @@ func getArrayElements(extraction *WebExtraction, field models.Field) ([]models.F
 			field.Error = err
 		}
 
-		fields = append(fields, field)
+		fields = append(outputFields, field)
 
 		i++
 	}
